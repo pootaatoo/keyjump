@@ -9,13 +9,30 @@ const TOGGLE_WIDGET_MESSAGE = 'TOGGLE_WIDGET';
 const GET_WIDGET_STATE_MESSAGE = 'GET_WIDGET_STATE';
 const WIDGET_STATE_CHANGED_MESSAGE = 'WIDGET_STATE_CHANGED';
 const RESCAN_DEBOUNCE_MS = 250;
+const DYNAMIC_RESCAN_DEBOUNCE_MS = 650;
 const CLOSED_FLAG = '__keywordWidgetClosed';
+const LINKEDIN_JOB_CONTAINER_SELECTORS = [
+  '.jobs-search__job-details--container',
+  '.jobs-search__job-details',
+  '.job-view-layout',
+  '.jobs-details',
+  '.jobs-description',
+  '.jobs-box__html-content',
+  '.jobs-description-content__text',
+  'main',
+];
 
 let widgetElement = null;
 let extensionSettings = null;
 let keywordMatchState = {};
 let currentActiveHighlight = null; 
 let rescanTimer = null;
+let dynamicRescanTimer = null;
+let dynamicObserver = null;
+let dynamicObserverRoot = null;
+let dynamicRouteCleanup = null;
+let currentPageUrl = location.href;
+let ignoreMutationsUntil = 0;
 let cleanupDragListeners = null;
 let settingsCollapsed = false;
 
@@ -78,11 +95,14 @@ async function initializeWidget() {
 
     createWidget();
     notifyWidgetState(true);
+    startDynamicPageWatcher();
 
     if (extensionSettings.keywords.length > 0 && extensionSettings.autoScan) {
       window.setTimeout(() => {
         performInternalScan();
       }, 300);
+      scheduleDynamicFollowUpRescan(1200);
+      scheduleDynamicFollowUpRescan(2500);
     }
   } catch (error) {
     console.error('Error initializing widget:', error);
@@ -224,6 +244,8 @@ function handleCloseWidget(event) {
 function resetWidgetSession() {
   window.clearTimeout(rescanTimer);
   rescanTimer = null;
+  window.clearTimeout(dynamicRescanTimer);
+  dynamicRescanTimer = null;
 
   if (cleanupDragListeners) {
     cleanupDragListeners();
@@ -236,6 +258,7 @@ function resetWidgetSession() {
 
   widgetElement = null;
   extensionSettings = null;
+  stopDynamicPageWatcher();
   clearAllHighlights();
 }
 
@@ -295,6 +318,7 @@ function performInternalScan() {
     return;
   }
 
+  ignoreMutationsBriefly();
   clearAllHighlights();
 
   if (!extensionSettings.keywords.length) {
@@ -412,7 +436,7 @@ function jumpToKeywordInternal(keyword) {
   keywordState.currentIndex = (keywordState.currentIndex + 1) % matches.length;
   const target = matches[keywordState.currentIndex];
   setActiveHighlight(target);
-  target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+  scrollMatchIntoView(target);
 }
 
 function setActiveHighlight(target) {
@@ -432,12 +456,13 @@ function setActiveHighlight(target) {
 function scanPageForKeywordsAndHighlight(keywords, caseSensitive, wholeWord) {
   const results = createResultsMap(keywords);
   const keywordConfigs = buildKeywordConfigs(keywords, caseSensitive, wholeWord);
+  const scanRoot = getScanRoot();
 
-  if (!document.body || !keywordConfigs.length) {
+  if (!scanRoot || !keywordConfigs.length) {
     return results;
   }
 
-  const textNodes = getSearchableTextNodes();
+  const textNodes = getSearchableTextNodes(scanRoot);
   textNodes.forEach(node => {
     const matches = collectMatchesForNode(node.textContent, keywordConfigs);
     if (!matches.length) {
@@ -467,10 +492,10 @@ function buildKeywordConfigs(keywords, caseSensitive, wholeWord) {
     });
 }
 
-function getSearchableTextNodes() {
+function getSearchableTextNodes(root) {
   const nodes = [];
   const walker = document.createTreeWalker(
-    document.body,
+    root,
     NodeFilter.SHOW_TEXT,
     {
       acceptNode(node) {
@@ -618,6 +643,279 @@ function shouldSkipNode(node) {
   }
 
   return false;
+}
+
+function getScanRoot() {
+  if (!isLinkedInJobsPage()) {
+    return document.body;
+  }
+
+  return getLinkedInJobContainer() || document.querySelector('main') || document.body;
+}
+
+function getLinkedInJobContainer() {
+  for (const selector of LINKEDIN_JOB_CONTAINER_SELECTORS) {
+    const element = document.querySelector(selector);
+    if (element && element.textContent.trim()) {
+      return element;
+    }
+  }
+
+  return null;
+}
+
+function isLinkedInJobsPage() {
+  return isLinkedInPage() && location.pathname.includes('/jobs');
+}
+
+function isLinkedInPage() {
+  return /(^|\.)linkedin\.com$/i.test(location.hostname);
+}
+
+function startDynamicPageWatcher() {
+  stopDynamicPageWatcher();
+
+  if (!isLinkedInPage() || isWidgetClosedForPage()) {
+    return;
+  }
+
+  installDynamicRouteWatcher();
+
+  if (isLinkedInJobsPage()) {
+    observeDynamicContentRoot();
+  }
+}
+
+function stopDynamicPageWatcher() {
+  stopDynamicContentObserver();
+
+  if (dynamicRouteCleanup) {
+    dynamicRouteCleanup();
+    dynamicRouteCleanup = null;
+  }
+}
+
+function stopDynamicContentObserver() {
+  if (dynamicObserver) {
+    dynamicObserver.disconnect();
+    dynamicObserver = null;
+  }
+
+  dynamicObserverRoot = null;
+}
+
+function observeDynamicContentRoot() {
+  const root = getScanRoot();
+  if (!root || root === dynamicObserverRoot) {
+    return;
+  }
+
+  if (dynamicObserver) {
+    dynamicObserver.disconnect();
+  }
+
+  dynamicObserverRoot = root;
+  dynamicObserver = new MutationObserver(handleDynamicContentMutations);
+  dynamicObserver.observe(root, {
+    childList: true,
+    subtree: true,
+    characterData: true,
+  });
+}
+
+function handleDynamicContentMutations(mutations) {
+  if (
+    isWidgetClosedForPage()
+    || !extensionSettings
+    || !extensionSettings.autoScan
+    || !extensionSettings.keywords.length
+    || Date.now() < ignoreMutationsUntil
+  ) {
+    return;
+  }
+
+  if (!mutations.some(isRelevantDynamicMutation)) {
+    return;
+  }
+
+  observeDynamicContentRoot();
+  scheduleDynamicPageRescan(DYNAMIC_RESCAN_DEBOUNCE_MS);
+}
+
+function isRelevantDynamicMutation(mutation) {
+  if (isInternalMutationTarget(mutation.target)) {
+    return false;
+  }
+
+  const changedNodes = [
+    ...Array.from(mutation.addedNodes || []),
+    ...Array.from(mutation.removedNodes || []),
+  ];
+
+  if (changedNodes.some(isInternalMutationTarget)) {
+    return false;
+  }
+
+  if (mutation.type === 'characterData') {
+    return Boolean(mutation.target.textContent.trim());
+  }
+
+  return changedNodes.some(node => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      return Boolean(node.textContent.trim());
+    }
+
+    return node.nodeType === Node.ELEMENT_NODE && Boolean(node.textContent.trim());
+  });
+}
+
+function isInternalMutationTarget(target) {
+  const element = target?.nodeType === Node.ELEMENT_NODE ? target : target?.parentElement;
+  return Boolean(
+    element
+    && (
+      element.closest(`#${KEYJUMP_WIDGET_ID}`)
+      || element.closest(`.${SOFT_HIGHLIGHT_CLASS}`)
+      || element.classList?.contains(SOFT_HIGHLIGHT_CLASS)
+    )
+  );
+}
+
+function scheduleDynamicPageRescan(delay = DYNAMIC_RESCAN_DEBOUNCE_MS) {
+  if (!isLinkedInJobsPage() || isWidgetClosedForPage()) {
+    return;
+  }
+
+  window.clearTimeout(dynamicRescanTimer);
+  dynamicRescanTimer = window.setTimeout(() => {
+    if (
+      !isWidgetClosedForPage()
+      && extensionSettings
+      && extensionSettings.autoScan
+      && extensionSettings.keywords.length
+    ) {
+      observeDynamicContentRoot();
+      performInternalScan();
+    }
+  }, delay);
+}
+
+function installDynamicRouteWatcher() {
+  if (dynamicRouteCleanup) {
+    return;
+  }
+
+  const originalPushState = history.pushState;
+  const originalReplaceState = history.replaceState;
+  const handleNavigation = () => {
+    window.setTimeout(handleDynamicRouteChange, 0);
+  };
+
+  history.pushState = function pushState(...args) {
+    const result = originalPushState.apply(this, args);
+    handleNavigation();
+    return result;
+  };
+
+  history.replaceState = function replaceState(...args) {
+    const result = originalReplaceState.apply(this, args);
+    handleNavigation();
+    return result;
+  };
+
+  window.addEventListener('popstate', handleNavigation);
+
+  dynamicRouteCleanup = () => {
+    history.pushState = originalPushState;
+    history.replaceState = originalReplaceState;
+    window.removeEventListener('popstate', handleNavigation);
+  };
+}
+
+function handleDynamicRouteChange() {
+  if (location.href === currentPageUrl) {
+    return;
+  }
+
+  currentPageUrl = location.href;
+
+  if (isWidgetClosedForPage() || !isLinkedInPage()) {
+    stopDynamicPageWatcher();
+    return;
+  }
+
+  if (!isLinkedInJobsPage()) {
+    stopDynamicContentObserver();
+    ignoreMutationsBriefly();
+    clearAllHighlights();
+    return;
+  }
+
+  ignoreMutationsBriefly();
+  clearAllHighlights();
+  observeDynamicContentRoot();
+  scheduleDynamicFollowUpRescan(800);
+  scheduleDynamicFollowUpRescan(1800);
+}
+
+function ignoreMutationsBriefly() {
+  ignoreMutationsUntil = Date.now() + 300;
+}
+
+function scheduleDynamicFollowUpRescan(delay) {
+  if (!isLinkedInJobsPage() || isWidgetClosedForPage()) {
+    return;
+  }
+
+  window.setTimeout(() => {
+    if (
+      !isWidgetClosedForPage()
+      && extensionSettings
+      && extensionSettings.autoScan
+      && extensionSettings.keywords.length
+    ) {
+      observeDynamicContentRoot();
+      performInternalScan();
+    }
+  }, delay);
+}
+
+function scrollMatchIntoView(target) {
+  const scroller = getScrollableAncestor(target);
+  if (!scroller || scroller === document.documentElement || scroller === document.body) {
+    target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+    return;
+  }
+
+  const containerRect = scroller.getBoundingClientRect();
+  const targetRect = target.getBoundingClientRect();
+  const top = scroller.scrollTop
+    + targetRect.top
+    - containerRect.top
+    - (containerRect.height / 2)
+    + (targetRect.height / 2);
+
+  scroller.scrollTo({
+    top,
+    behavior: 'smooth',
+  });
+}
+
+function getScrollableAncestor(element) {
+  let current = element.parentElement;
+
+  while (current && current !== document.body) {
+    const style = window.getComputedStyle(current);
+    const canScroll = /(auto|scroll|overlay)/.test(style.overflowY);
+
+    if (canScroll && current.scrollHeight > current.clientHeight + 8) {
+      return current;
+    }
+
+    current = current.parentElement;
+  }
+
+  return document.scrollingElement || document.documentElement;
 }
 
 function createResultsMap(keywords) {
