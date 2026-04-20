@@ -73,7 +73,7 @@ This extension is currently installed manually as an unpacked Chrome extension.
 
 1. Open any normal webpage.
 
-2. The floating **Keywords** widget should appear automatically.
+2. The floating **keyjump** widget should appear automatically.
 
 3. Open the **Settings** section if it is folded.
 
