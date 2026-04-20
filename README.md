@@ -69,8 +69,6 @@ This extension is currently installed manually as an unpacked Chrome extension.
 
 8. Optional: pin the extension to your Chrome toolbar.
 
-   Click the puzzle-piece icon in Chrome, then pin **Keyword Jump Finder**.
-
 ## How to Use
 
 1. Open any normal webpage.
