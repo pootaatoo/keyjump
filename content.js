@@ -5,6 +5,9 @@ const KEYJUMP_WIDGET_ID = 'keyjump-widget';
 const SOFT_HIGHLIGHT_CLASS = 'kw-highlight';
 const ACTIVE_HIGHLIGHT_CLASS = 'kw-highlight-active';
 const REFRESH_WIDGET_MESSAGE = 'REFRESH_WIDGET';
+const TOGGLE_WIDGET_MESSAGE = 'TOGGLE_WIDGET';
+const GET_WIDGET_STATE_MESSAGE = 'GET_WIDGET_STATE';
+const WIDGET_STATE_CHANGED_MESSAGE = 'WIDGET_STATE_CHANGED';
 const RESCAN_DEBOUNCE_MS = 250;
 const CLOSED_FLAG = '__keywordWidgetClosed';
 
@@ -23,18 +26,34 @@ if (document.readyState === 'loading') {
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message?.type !== REFRESH_WIDGET_MESSAGE) {
+  if (message?.type === GET_WIDGET_STATE_MESSAGE) {
+    sendResponse({ ok: true, widgetEnabled: isWidgetEnabledForPage() });
     return false;
   }
 
-  refreshWidget()
-    .then(() => sendResponse({ ok: true }))
-    .catch(error => {
-      console.error('Error refreshing widget:', error);
-      sendResponse({ ok: false, error: error.message });
-    });
+  if (message?.type === REFRESH_WIDGET_MESSAGE) {
+    refreshWidget()
+      .then(() => sendResponse({ ok: true, widgetEnabled: isWidgetEnabledForPage() }))
+      .catch(error => {
+        console.error('Error refreshing widget:', error);
+        sendResponse({ ok: false, error: error.message });
+      });
 
-  return true;
+    return true;
+  }
+
+  if (message?.type === TOGGLE_WIDGET_MESSAGE) {
+    setWidgetEnabledForPage(Boolean(message.enabled))
+      .then(() => sendResponse({ ok: true, widgetEnabled: isWidgetEnabledForPage() }))
+      .catch(error => {
+        console.error('Error toggling widget:', error);
+        sendResponse({ ok: false, error: error.message });
+      });
+
+    return true;
+  }
+
+  return false;
 });
 
 async function initializeWidget() {
@@ -58,6 +77,7 @@ async function initializeWidget() {
     };
 
     createWidget();
+    notifyWidgetState(true);
 
     if (extensionSettings.keywords.length > 0 && extensionSettings.autoScan) {
       window.setTimeout(() => {
@@ -70,6 +90,17 @@ async function initializeWidget() {
 }
 
 async function refreshWidget() {
+  await setWidgetEnabledForPage(true);
+}
+
+async function setWidgetEnabledForPage(enabled) {
+  if (!enabled) {
+    setWidgetClosedForPage(true);
+    resetWidgetSession();
+    notifyWidgetState(false);
+    return;
+  }
+
   setWidgetClosedForPage(false);
   settingsCollapsed = false;
   resetWidgetSession();
@@ -187,6 +218,7 @@ function handleCloseWidget(event) {
   event.stopPropagation();
   setWidgetClosedForPage(true);
   resetWidgetSession();
+  notifyWidgetState(false);
 }
 
 function resetWidgetSession() {
@@ -671,4 +703,21 @@ function isWidgetClosedForPage() {
 
 function setWidgetClosedForPage(value) {
   window[CLOSED_FLAG] = value === true;
+}
+
+function isWidgetEnabledForPage() {
+  return !isWidgetClosedForPage();
+}
+
+function notifyWidgetState(enabled) {
+  try {
+    chrome.runtime.sendMessage({
+      type: WIDGET_STATE_CHANGED_MESSAGE,
+      enabled,
+    }, () => {
+      void chrome.runtime.lastError;
+    });
+  } catch (_error) {
+    // The widget still works if the background service worker is unavailable.
+  }
 }

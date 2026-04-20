@@ -40,8 +40,11 @@ It can also be useful for reading:
 - Highlights matched keywords on the page
 - Shows how many matches were found
 - `Go to` button for jumping through matches
-- Click the extension icon to refresh/reinitialize the widget on the current page
+- Click the extension icon to show or hide the widget on the current tab
+- Colored toolbar icon when the widget is on
+- Gray toolbar icon when the widget is off
 - Close button to hide the widget for the current page session
+- Preserves saved keywords and settings when the widget is hidden
 
 ## Installation
 
@@ -95,9 +98,28 @@ This extension is currently installed manually as an unpacked Chrome extension.
 
 9. Click **Go to** repeatedly to move through multiple matches for the same keyword.
 
-10. If needed, click the extension icon in the Chrome toolbar to refresh the widget on the current page.
+10. Click the extension icon in the Chrome toolbar to hide the widget on the current tab.
 
-11. Click the close button on the widget to hide it for the current page session.
+    The toolbar icon turns gray, the widget is removed from the page, and any keyword highlights are cleared.
+
+11. Click the extension icon again to show the widget again.
+
+    The toolbar icon turns colored again, your last saved keywords and settings are reloaded, and auto scan runs if it is enabled.
+
+12. You can also click the close button on the widget to hide it for the current page session.
+
+## Toolbar Icon Toggle
+
+The Chrome toolbar icon acts as an on/off switch for the widget on the current tab:
+
+- **Colored icon** means the widget is enabled and visible.
+- **Gray icon** means the widget is disabled and hidden.
+- Turning the widget off does not erase saved keywords or settings.
+- Turning the widget back on restores the widget from `chrome.storage.local`.
+- The page is not refreshed when toggling the widget.
+- No popup or options page opens when clicking the icon.
+
+The toggle is per tab and per page session. After a real page reload or navigating to a new page, the widget starts enabled again.
 
 ## Tips
 
@@ -105,12 +127,14 @@ This extension is currently installed manually as an unpacked Chrome extension.
 - Use **Whole word only** to reduce false matches.
 - Use **Auto Scan on Page Load** if you often search for the same keywords across many pages.
 - Click **Go to** repeatedly to cycle through multiple matches for the same keyword.
+- Use the toolbar icon when you temporarily want the page back to normal without losing your saved search setup.
 - For job searching, save a reusable list of terms you care about, such as visa, sponsorship, OPT, CPT, H1B, and years of experience.
 
 ## Notes / Limitations
 
 - Some browser pages may not be scanned.
 - Behavior may vary on highly dynamic webpages that constantly update their content.
+- The toolbar toggle is temporary for the current tab/page session and does not change saved search settings.
 - If you change extension files locally, reload the extension from `chrome://extensions`.
 
 ## Feedback
