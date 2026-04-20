@@ -1,18 +1,14 @@
 # keyjump: Keyword Jump Finder
 
 A simple Chrome extension that helps you find, highlight, and jump to important keywords on any webpage.
-
-## What This Extension Does
-
-Keyword Jump Finder adds a small floating keyword finder widget to webpages. You can enter and save a list of keywords, scan the current page, highlight matching text, and quickly jump through found matches.
+  
+You can enter and save a list of keywords, scan the current page, highlight matching text, and quickly jump through found matches.
 
 It is useful when you want to quickly scan long webpages for important terms without manually using the browser search box over and over.
 
 ## Use Cases
 
-This extension is especially useful for job searching.
-
-For example, when reading job postings, you can search for keywords such as:
+This extension is especially useful for job searching. For example, when reading job postings, you can search for keywords such as:
 
 - visa / sponsorship
 - years of experience
@@ -67,9 +63,7 @@ This extension is currently installed manually as an unpacked Chrome extension.
 
 5. Click **Load unpacked**.
 
-6. Select the project folder that contains `manifest.json`.
-
-   For example, select the `QuickFilter` folder, not a file inside it.
+6. Select the project folder `keyjump`.
 
 7. The extension should now appear in your Chrome extensions list.
 
@@ -117,9 +111,8 @@ This extension is currently installed manually as an unpacked Chrome extension.
 
 ## Notes / Limitations
 
-- Some browser pages, such as Chrome internal pages, cannot be scanned.
+- Some browser pages may not be scanned.
 - Behavior may vary on highly dynamic webpages that constantly update their content.
-- This extension is currently designed for Chrome and manual installation through **Load unpacked**.
 - If you change extension files locally, reload the extension from `chrome://extensions`.
 
 ## Feedback
